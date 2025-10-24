@@ -1,10 +1,10 @@
 #include <iostream>
-#include <unistd.h>     // For read(), write(), close()
-#include <sys/socket.h> // For socket(), bind(), listen(), accept()
-#include <netinet/in.h> // For sockaddr_in
-#include <string.h>     // For memset()
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <string.h>
 #include <vector>
-#include "global_stuff.h"     // For TCP_PORT
+#include "global_stuff.h"
 
 using namespace std; 
 

@@ -1,7 +1,7 @@
-build/
-
+*/out/
+*/*/out/
 *.o
-*.exe
 *.out
-
-*.tmp
+*.swp
+*.swo
+.vscode/

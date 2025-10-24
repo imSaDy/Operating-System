@@ -41,23 +41,27 @@ bool check_duplicate_username(vector <User*> &users, string username){
     return false; 
 }
 
+void handle_register_command(vector <User*> &users, int client_socket, vector <string> &command){
+    if (command.size() <= REG_PASSWORD){
+        write(client_socket, "ERROR Invalid command format", 28);
+        return; 
+    }
+    if (check_duplicate_username(users, command[REG_USERNAME])){
+        write(client_socket, "ERROR UsernameAlreadyExists", 27);
+        return; 
+    }
+    else {
+        User* new_user = new User(command[REG_USERNAME], command[REG_PASSWORD], command[REG_ROLE]);
+        users.push_back(new_user);
+        cout << "New user registered: " << command[REG_USERNAME] << endl;
+        write(client_socket, "REGISTERED OK", 13);
+    }
+}
+
 void handle_command(vector <User*> &users, int client_socket, string buffer){
     vector <string> command = tokenize(buffer);
     if (command[COMMAND_WORD] == "REGISTER"){
-        if (command.size() <= REG_PASSWORD){
-            write(client_socket, "ERROR Invalid command format", 28);
-            return; 
-        }
-        if (check_duplicate_username(users, command[REG_USERNAME])){
-            write(client_socket, "ERROR UsernameAlreadyExists", 27);
-            return; 
-        }
-        else {
-            User* new_user = new User(command[REG_USERNAME], command[REG_PASSWORD], command[REG_ROLE]);
-            users.push_back(new_user);
-            cout << "New user registered: " << command[REG_USERNAME] << endl;
-            write(client_socket, "REGISTERED OK", 13);
-        }
+        handle_register_command(users, client_socket, command);
     }
 }
 

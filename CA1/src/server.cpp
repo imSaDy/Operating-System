@@ -5,6 +5,9 @@
 #include <string.h>
 #include <vector>
 #include <arpa/inet.h>
+#include <map>
+#include <signal.h>
+#include <errno.h>
 #include "global_stuff.h"
 
 using namespace std; 
@@ -36,6 +39,13 @@ const int ADD_FLIGHT_DEST = 3;
 const int ADD_FLIGHT_TIME = 4;
 const int ADD_FLIGHT_COLS = 5;
 const int ADD_FLIGHT_ROWS = 6;
+const int RESERVE_FLIGHT_ID = 1;
+const int RESERVE_SEAT_START = 2;
+const int CONFIRM_RESERVATION_ID = 1; 
+const int CANCEL_RESERVATION_ID = 1;
+
+map <int, Reservation*> reservations; 
+int new_reservation_id = 1; 
 
 vector <string> tokenize(string command){
     vector <string> tokens;
@@ -109,7 +119,7 @@ Flight* find_flight_by_id(vector <Flight*> &flights, string id){
     return NULL; 
 }
 
-void handle_login_command(vector <User*> &users, int client_socket, vector <string> &command){
+void handle_login_command(vector <User*> &users, int client_socket, vector <string> &command, map <int, User*> &logged_in_users){
     if (command.size() <= LOGIN_PASSWORD){
         write(client_socket, "ERROR Invalid command format", 28);
         return; 
@@ -122,14 +132,25 @@ void handle_login_command(vector <User*> &users, int client_socket, vector <stri
     else {
         cout << command[LOGIN_USERNAME] << " logged in successfully" << endl; 
         write(client_socket, "LOGIN OK", 8);
+        logged_in_users[client_socket] = user; 
     }
 }
 
-void handle_add_flight_command(vector<Flight*> &flights, vector <User*> &users, int client_socket, vector <string> &command, int udp_socket){
+void handle_add_flight_command(vector<Flight*> &flights, vector <User*> &users, int client_socket, vector <string> &command, int udp_socket, map <int, User*> &logged_in_users){
+    if (logged_in_users.find(client_socket) == logged_in_users.end()){
+        write(client_socket, "ERROR Not logged in", 19);
+        return;
+    }
+    User* user = logged_in_users[client_socket]; 
+    if (user->role != "AIRLINE"){
+        write(client_socket, "ERROR Permission denied", 23);
+        return;
+    }
     if (command.size() <= ADD_FLIGHT_ROWS){
         write(client_socket, "ERROR Invalid command format", 28);
         return; 
     }
+    
     Flight* flight = find_flight_by_id(flights, command[ADD_FLIGHT_ID]);
     if (flight != NULL){
         write(client_socket, "ERROR DuplicateFlightID", 23);
@@ -152,14 +173,131 @@ void handle_add_flight_command(vector<Flight*> &flights, vector <User*> &users, 
     send_broadcast(udp_socket, broadcast_message, UDP_PORT_CUSTOMER);
 }
 
-void handle_command(vector <Flight*> flights, vector <User*> &users, int client_socket, string buffer, int udp_socket_customer, int udp_socket_airline){
+void handle_list_flights_command(vector<Flight*> &flights, int client_socket){
+    string output = ""; 
+    for (auto flight : flights){
+        output += flight->get_as_flight_list_item(); 
+    }
+    write(client_socket, output.c_str(), (int)output.size());
+}
+
+void handle_reserve_command(vector<Flight*> &flights, int client_socket, vector<string> &command, map<int, User*> &logged_in_users){
+    if (logged_in_users.find(client_socket) == logged_in_users.end()){
+        write(client_socket, "ERROR Not logged in", 19);
+        return;
+    }
+    User* user = logged_in_users[client_socket];
+    if (user->role != "CUSTOMER"){
+        write(client_socket, "ERROR Permission denied", 23);
+        return;
+    }
+    Flight* flight = find_flight_by_id(flights, command[RESERVE_FLIGHT_ID]);
+    if (flight == NULL){
+        write(client_socket, "ERROR FlightNotFound", 20);
+        return;
+    }
+    vector <Seat*> requested_seats; 
+    for (int i = RESERVE_SEAT_START; i < (int)command.size(); i++){
+        string seat_id = command[i];
+        Seat* seat = flight->find_seat_by_id(seat_id);
+        if (seat == NULL){
+            string error = "ERROR SeatNotFound " + seat_id;
+            write(client_socket, error.c_str(), error.length());
+            return;
+        }
+        if (seat->is_reserved){
+            string error_msg = "ERROR SeatAlreadyReserved " + seat_id;
+            write(client_socket, error_msg.c_str(), error_msg.length());
+            return;
+        }
+        requested_seats.push_back(seat);
+    }
+    int new_id = new_reservation_id++;
+    Reservation* new_reservation = new Reservation(new_id, command[RESERVE_FLIGHT_ID], user->username);
+    for (auto seat : requested_seats){
+        seat->is_reserved = true; 
+        new_reservation->reserved_seats.push_back(seat);
+    }
+    reservations[new_id] = new_reservation; 
+    string output = "RESERVED TEMP " + to_string(new_id) + " EXPIRES IN 30\n";
+    write(client_socket, output.c_str(), output.length());
+    cout << "Temp reservation " << new_id << " created for " << user->username << endl;
+}
+
+void handle_confirm_command(int client_socket, vector <string> &command, map <int, User*> &logged_in_users){
+    if (logged_in_users.find(client_socket) == logged_in_users.end()){
+        write(client_socket, "ERROR Not logged in", 19);
+        return;
+    }
+    User* user = logged_in_users[client_socket]; 
+    int reservation_id = stoi(command[CONFIRM_RESERVATION_ID]);
+    if (reservations.find(reservation_id) == reservations.end()) {
+        write(client_socket, "ERROR ReservationExpired", 24);
+        return;
+    }
+    Reservation* reserve = reservations[reservation_id];
+    reserve->status = CONFIRMED;
+    cout << "Reservation " << reservation_id << " confirmed by " << user->username << endl;
+    write(client_socket, "CONFIRMATION OK\n", 16);
+}
+
+void handle_cancel_command(int client_socket, vector <string> &command, map<int, User*> logged_in_users){
+    if (logged_in_users.find(client_socket) == logged_in_users.end()) {
+        write(client_socket, "ERROR Not logged in", 19);
+        return;
+    }
+    User* user = logged_in_users[client_socket];
+    int reservation_id = stoi(command[CANCEL_RESERVATION_ID]);
+    Reservation* res = reservations[reservation_id];
+
+    cout << "Cancelling reservation " << reservation_id << " for " << user->username << ". Releasing seats." << endl;
+    for (auto seat : res->reserved_seats) {
+        seat->is_reserved = false;
+    }
+    delete res;
+    reservations.erase(reservation_id);
+    write(client_socket, "CANCELLED OK\n", 13);
+}
+
+void handle_command(vector <Flight*> &flights, vector <User*> &users, int client_socket, string buffer, int udp_socket_customer, int udp_socket_airline, map <int, User*> &logged_in_users){
     vector <string> command = tokenize(buffer);
     if (command[COMMAND_WORD] == "REGISTER")
         handle_register_command(users, client_socket, command, udp_socket_airline);
     if (command[COMMAND_WORD] == "LOGIN")
-        handle_login_command(users, client_socket, command);
+        handle_login_command(users, client_socket, command, logged_in_users);
     if (command[COMMAND_WORD] == "ADD_FLIGHT")
-        handle_add_flight_command(flights, users, client_socket, command, udp_socket_customer);
+        handle_add_flight_command(flights, users, client_socket, command, udp_socket_customer, logged_in_users);
+    if (command[COMMAND_WORD] == "LIST_FLIGHTS")
+        handle_list_flights_command(flights, client_socket); 
+    if (command[COMMAND_WORD] == "RESERVE")
+        handle_reserve_command(flights, client_socket, command, logged_in_users);
+    if (command[COMMAND_WORD] == "CONFIRM")
+        handle_confirm_command(client_socket, command, logged_in_users);
+    if (command[COMMAND_WORD] == "CANCEL")
+        handle_cancel_command(client_socket, command, logged_in_users);
+}
+
+void check_reservations(int signal){
+    time_t now = time(NULL);
+    for (auto it = reservations.begin(); it != reservations.end();){
+        Reservation* reserve = it->second;
+        if (reserve->status == TEMPORARY){
+            double diff_time = difftime(now, reserve->timestamp);
+            if (diff_time > 30){
+                cout << "Reservation " << reserve->id << "expired." << endl;
+                for (auto seat : reserve->reserved_seats){
+                    seat->is_reserved = false; 
+                }
+                delete reserve; 
+                it = reservations.erase(it);
+            }
+            else
+                it++;
+        }
+        else
+            it++;
+    }
+    alarm(1);
 }
 
 int main() {
@@ -169,6 +307,9 @@ int main() {
     char buffer[BUFFER_SIZE] = {0};
     vector <User*> users;
     vector <Flight*> flights; 
+    map <int, User*> logged_in_users; 
+
+    signal(SIGALRM, check_reservations);
 
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
     int tcp_opt = 1; 
@@ -204,9 +345,14 @@ int main() {
     FD_SET(server_fd, &master_read_fds);
     max_fd = server_fd;
 
+    alarm(1);
+    cout << "Timer started." << endl;
+
     while (true){
         tmp_read_fds = master_read_fds; 
         if (select(max_fd + 1, &tmp_read_fds, NULL, NULL, NULL) == -1){
+            if (errno == EINTR)
+                continue;
             cerr << "select() error" << endl; 
             return 1; 
         }
@@ -228,6 +374,7 @@ int main() {
                     int num_read = read(i, buffer, BUFFER_SIZE);
                     if (num_read <= 0){
                         cout << "Client disconnected, Socket FD: " << i << endl; 
+                        logged_in_users.erase(i);
                         close(i);
                         FD_CLR(i, &master_read_fds);
                     }
@@ -239,7 +386,7 @@ int main() {
                                 break; 
                             }
                         }
-                        handle_command(flights, users, i, buffer, udp_socket_customer, udp_socket_airline);
+                        handle_command(flights, users, i, buffer, udp_socket_customer, udp_socket_airline, logged_in_users);
                     }
                 }
             }

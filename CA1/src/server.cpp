@@ -85,10 +85,6 @@ void send_broadcast(int udp_socket, string message, int port){
 }
 
 void handle_register_command(vector <User*> &users, int client_socket, vector <string> &command, int udp_socket){
-    if (command.size() <= REG_PASSWORD){
-        write(client_socket, "ERROR Invalid command format", 28);
-        return; 
-    }
     if (check_duplicate_username(users, command[REG_USERNAME])){
         write(client_socket, "ERROR UsernameAlreadyExists", 27);
         return; 
@@ -120,10 +116,6 @@ Flight* find_flight_by_id(vector <Flight*> &flights, string id){
 }
 
 void handle_login_command(vector <User*> &users, int client_socket, vector <string> &command, map <int, User*> &logged_in_users){
-    if (command.size() <= LOGIN_PASSWORD){
-        write(client_socket, "ERROR Invalid command format", 28);
-        return; 
-    }
     User* user = find_user_by_username(users, command[LOGIN_USERNAME]);
     if (user == NULL)
         write(client_socket, "ERROR UserNotFound", 18);
@@ -146,11 +138,6 @@ void handle_add_flight_command(vector<Flight*> &flights, vector <User*> &users, 
         write(client_socket, "ERROR Permission denied", 23);
         return;
     }
-    if (command.size() <= ADD_FLIGHT_ROWS){
-        write(client_socket, "ERROR Invalid command format", 28);
-        return; 
-    }
-    
     Flight* flight = find_flight_by_id(flights, command[ADD_FLIGHT_ID]);
     if (flight != NULL){
         write(client_socket, "ERROR DuplicateFlightID", 23);
@@ -167,9 +154,8 @@ void handle_add_flight_command(vector<Flight*> &flights, vector <User*> &users, 
         }
     }
     flights.push_back(new_flight);
-    cout << "New flight added: " << command[ADD_FLIGHT_ID] << endl;
-    write(client_socket, "FLIGHT ADDED OK", 15);
-    string broadcast_message = "BROADCAST NEW FLIGHT " + new_flight->flight_id + " " + new_flight->origin + " " + new_flight->destination + " " + new_flight->time;
+    write(client_socket, "FLIGHT_ADDED OK", 15);
+    string broadcast_message = "BROADCAST NEW_FLIGHT " + new_flight->flight_id + " " + new_flight->origin + " " + new_flight->destination + " " + new_flight->time;
     send_broadcast(udp_socket, broadcast_message, UDP_PORT_CUSTOMER);
 }
 
@@ -206,8 +192,8 @@ void handle_reserve_command(vector<Flight*> &flights, int client_socket, vector<
             return;
         }
         if (seat->is_reserved){
-            string error_msg = "ERROR SeatAlreadyReserved " + seat_id;
-            write(client_socket, error_msg.c_str(), error_msg.length());
+            string error_message = "ERROR SeatAlreadyReserved " + seat_id;
+            write(client_socket, error_message.c_str(), error_message.length());
             return;
         }
         requested_seats.push_back(seat);
@@ -219,9 +205,8 @@ void handle_reserve_command(vector<Flight*> &flights, int client_socket, vector<
         new_reservation->reserved_seats.push_back(seat);
     }
     reservations[new_id] = new_reservation; 
-    string output = "RESERVED TEMP " + to_string(new_id) + " EXPIRES IN 30\n";
+    string output = "RESERVED TEMP " + to_string(new_id) + " EXPIRES IN 30";
     write(client_socket, output.c_str(), output.length());
-    cout << "Temp reservation " << new_id << " created for " << user->username << endl;
 }
 
 void handle_confirm_command(int client_socket, vector <string> &command, map <int, User*> &logged_in_users){
@@ -229,15 +214,17 @@ void handle_confirm_command(int client_socket, vector <string> &command, map <in
         write(client_socket, "ERROR Not logged in", 19);
         return;
     }
-    User* user = logged_in_users[client_socket]; 
     int reservation_id = stoi(command[CONFIRM_RESERVATION_ID]);
     if (reservations.find(reservation_id) == reservations.end()) {
         write(client_socket, "ERROR ReservationExpired", 24);
         return;
     }
     Reservation* reserve = reservations[reservation_id];
+    if (reserve->status == CONFIRMED){
+        write(client_socket, "ERROR ReservationAlreadyConfirmed", 33);
+        return;
+    }
     reserve->status = CONFIRMED;
-    cout << "Reservation " << reservation_id << " confirmed by " << user->username << endl;
     write(client_socket, "CONFIRMATION OK\n", 16);
 }
 
@@ -246,11 +233,12 @@ void handle_cancel_command(int client_socket, vector <string> &command, map<int,
         write(client_socket, "ERROR Not logged in", 19);
         return;
     }
-    User* user = logged_in_users[client_socket];
     int reservation_id = stoi(command[CANCEL_RESERVATION_ID]);
     Reservation* res = reservations[reservation_id];
-
-    cout << "Cancelling reservation " << reservation_id << " for " << user->username << ". Releasing seats." << endl;
+    if (res == NULL){
+        write(client_socket, "ERROR ReservationNotFound", 25);
+        return;
+    }
     for (auto seat : res->reserved_seats) {
         seat->is_reserved = false;
     }
@@ -284,7 +272,7 @@ void check_reservations(int signal){
         if (reserve->status == TEMPORARY){
             double diff_time = difftime(now, reserve->timestamp);
             if (diff_time > 30){
-                cout << "Reservation " << reserve->id << "expired." << endl;
+                cout << "Reservation " << reserve->reservation_id << " expired." << endl;
                 for (auto seat : reserve->reserved_seats){
                     seat->is_reserved = false; 
                 }
@@ -346,14 +334,13 @@ int main() {
     max_fd = server_fd;
 
     alarm(1);
-    cout << "Timer started." << endl;
 
     while (true){
         tmp_read_fds = master_read_fds; 
         if (select(max_fd + 1, &tmp_read_fds, NULL, NULL, NULL) == -1){
             if (errno == EINTR)
                 continue;
-            cerr << "select() error" << endl; 
+            cerr << "select error" << endl; 
             return 1; 
         }
         for (int i = 0; i <= max_fd; i++){
@@ -361,25 +348,24 @@ int main() {
                 if (i == server_fd){
                     int new_client_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen);
                     if (new_client_socket < 0){
-                        cerr << "accept() error" << endl; 
+                        cerr << "accept error" << endl; 
                     }
                     else {
                         FD_SET(new_client_socket, &master_read_fds);
                         max_fd = max(max_fd, new_client_socket);
-                        cout << "New client connected, Socket FD = " << new_client_socket << endl; 
+                        cout << "New client connected with socket FD = " << new_client_socket << endl; 
                     }
                 }
                 else {
                     memset(buffer, 0, BUFFER_SIZE);
                     int num_read = read(i, buffer, BUFFER_SIZE);
                     if (num_read <= 0){
-                        cout << "Client disconnected, Socket FD: " << i << endl; 
+                        cout << "Client disconnected with socket FD: " << i << endl; 
                         logged_in_users.erase(i);
                         close(i);
                         FD_CLR(i, &master_read_fds);
                     }
                     else {
-                        cout << "Received from client " << i << ": " << buffer; 
                         for (int j = 0; j < BUFFER_SIZE; j++){
                             if (buffer[j] == '\n'){
                                 buffer[j] = '\0';

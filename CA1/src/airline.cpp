@@ -64,12 +64,12 @@ int main() {
                 cout << "Server disconnected." << endl; 
                 break;
             }
-            cout << "Server: " << buffer << endl; 
+            cout << buffer << endl; 
         }
         if (FD_ISSET(udp_fd, &read_fds)){
             memset(buffer, 0, BUFFER_SIZE);
             read(udp_fd, buffer, BUFFER_SIZE);
-            cout << "\nBroadcast: " << buffer << endl; 
+            cout << "Broadcast: " << buffer << endl; 
         }
     }
     close(client_fd);

@@ -10,7 +10,7 @@ using namespace std;
 #define UDP_PORT_AIRLINE 8081
 #define UDP_PORT_CUSTOMER 8082
 
-const int BUFFER_SIZE = 1024; 
+const int BUFFER_SIZE = 1000; 
 
 enum ReservationStatus {
     TEMPORARY,
@@ -64,7 +64,7 @@ struct Flight {
                 free++;
             }
         }
-        result += "FLIGHT " + flight_id + " " + origin + " " + destination + " " + time + " SEATS_AVAILABLE=" + to_string(free) + "/" + to_string(total) + "\n";
+        result += "FLIGHT " + flight_id + " " + origin + " " + destination + " " + time + " SEATS_AVAILABLE=" + to_string(free) + "/" + to_string(total);
         return result; 
     }
     Seat* find_seat_by_id(string id){
@@ -77,14 +77,14 @@ struct Flight {
 };
 
 struct Reservation{
-    int id; 
+    int reservation_id; 
     string flight_id;
     string username; 
     vector <Seat*> reserved_seats; 
     ReservationStatus status; 
     time_t timestamp; 
     Reservation(int _id, string _flight_id, string _username) {
-        id = _id;
+        reservation_id = _id;
         flight_id = _flight_id;
         username = _username;
         status = TEMPORARY;

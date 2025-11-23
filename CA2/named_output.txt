@@ -1,0 +1,7 @@
+Command: named.sh
+Average User time (seconds): 1.081
+Average System time (seconds): 3.544
+Average CPU %: 93.50
+Average Elapsed time (seconds): 4.923
+Average File system inputs: 0.000
+Average File system outputs: 0.000

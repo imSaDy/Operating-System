@@ -7,8 +7,26 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <cstring>
+#include <sys/select.h> // Required for select()
 
 using namespace std;
+
+// Helper: Uses select() to wait for data to become available on the file descriptor.
+// Returns true if data is ready, false if timeout.
+bool wait_for_data(int fd, int seconds) {
+    fd_set read_fds;
+    FD_ZERO(&read_fds);
+    FD_SET(fd, &read_fds);
+
+    struct timeval timeout;
+    timeout.tv_sec = seconds;
+    timeout.tv_usec = 0;
+
+    // select pauses here until 'fd' has data OR 'seconds' pass.
+    int result = select(fd + 1, &read_fds, NULL, NULL, &timeout);
+
+    return (result > 0 && FD_ISSET(fd, &read_fds));
+}
 
 void execute_single_command(string cmd_str) {
     vector<string> args = split_spaces(cmd_str);
@@ -17,30 +35,50 @@ void execute_single_command(string cmd_str) {
     // --- Redirection Handling ---
     if (args.size() >= 2) {
         if (args[args.size() - 2] == ">" && args.back() == "np") {
+            // Write: Standard blocking open is fine because main.cpp holds a reader.
             int fd = open("np", O_WRONLY);
             if (fd >= 0) { dup2(fd, STDOUT_FILENO); close(fd); }
             args.pop_back(); args.pop_back();
-        } else if (args[args.size() - 2] == "<" && args.back() == "np") {
-            int fd = open("np", O_RDONLY);
-            if (fd >= 0) { dup2(fd, STDIN_FILENO); close(fd); }
+        } 
+        else if (args[args.size() - 2] == "<" && args.back() == "np") {
+            // Read: MUST use O_NONBLOCK + select to prevent hanging if writers are dead.
+            int fd = open("np", O_RDONLY | O_NONBLOCK);
+            
+            if (fd >= 0) {
+                // Wait up to 2 seconds for data
+                if (wait_for_data(fd, 2)) {
+                    dup2(fd, STDIN_FILENO);
+                } else {
+                    // Optional: Print error or just close if timed out
+                    // cerr << "Error: Timeout waiting for data in np" << endl;
+                }
+                // We close 'fd' here because dup2 created a copy on STDIN
+                // However, we must keep the connection alive for the command.
+                // Closing 'fd' is safe because STDIN (0) now holds the reference.
+                close(fd);
+            }
             args.pop_back(); args.pop_back();
         }
     }
 
     // --- Command Execution ---
     if (args[0] == "print_n") {
-        if (args.size() > 1) cmd_print_n(stoi(args[1]));
+        // Updated to use the CLI wrapper that checks for Stdin fallback
+        cmd_print_n_cli(args);
     } else if (args[0] == "len") {
         cmd_len();
     } else if (args[0] == "echo") {
         cmd_echo(args);
     } else if (args[0] == "np") {
-        int fd = open("np", O_RDONLY);
+        // "np" command (Reader): Uses same Non-Blocking + Select logic
+        int fd = open("np", O_RDONLY | O_NONBLOCK);
         if (fd >= 0) {
-            char buffer[1024];
-            ssize_t bytes;
-            while ((bytes = read(fd, buffer, sizeof(buffer))) > 0) {
-                write(STDOUT_FILENO, buffer, bytes);
+            if (wait_for_data(fd, 2)) {
+                char buffer[1024];
+                ssize_t bytes;
+                while ((bytes = read(fd, buffer, sizeof(buffer))) > 0) {
+                    write(STDOUT_FILENO, buffer, bytes);
+                }
             }
             close(fd);
         }

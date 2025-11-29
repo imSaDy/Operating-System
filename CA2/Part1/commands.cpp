@@ -33,6 +33,12 @@ void cmd_print_n_cli(const vector<string>& args) {
         if (pos < input_str.length()) {
             throw invalid_argument("Trailing characters found");
         }
+        if (n < 0) {
+            throw invalid_argument("Negative number not allowed");
+        }
+    } catch (const invalid_argument& e) {
+        cerr << "Error: Invalid argument for print_n (" << e.what() << "). Expected a positive number, got: '" << input_str << "'" << endl;
+        return;
     } catch (...) {
         cerr << "Error: Invalid argument for print_n. Expected a number, got: '" << input_str << "'" << endl;
         return;

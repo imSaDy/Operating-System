@@ -28,7 +28,7 @@ void execute_single_command(string cmd_str) {
     vector<string> args = split_spaces(cmd_str);
     if (args.empty()) exit(0);
 
-    if (args.size() >= 2) {
+    while (args.size() >= 2) {
         if (args[args.size() - 2] == ">" && args.back() == "np") {
             int fd = open("np", O_WRONLY);
             if (fd >= 0) { dup2(fd, STDOUT_FILENO); close(fd); }
@@ -48,6 +48,9 @@ void execute_single_command(string cmd_str) {
                 close(fd);
             }
             args.pop_back(); args.pop_back();
+        }
+        else {
+            break;
         }
     }
 
@@ -81,10 +84,7 @@ void execute_single_command(string cmd_str) {
             close(fd);
         }
     } else {
-        vector<char*> c_args;
-        for (auto &s : args) c_args.push_back(&s[0]);
-        c_args.push_back(nullptr);
-        execvp(c_args[0], c_args.data());
+        cerr << "Unknown command: " << args[0] << endl;  
         exit(1); 
     }
     exit(0); 

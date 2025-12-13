@@ -38,7 +38,6 @@ void run_multithreaded_test(int thread_cnt, const vector<int>& nums, long long e
             thread_data[i].right = (i + 1) * block_size;
         workers.push_back(thread(calculate_sum, &thread_data[i]));
     }
-
     long long sum_multi = 0;
     for (int i = 0; i < thread_cnt; i++){
         workers[i].join();
@@ -50,12 +49,11 @@ void run_multithreaded_test(int thread_cnt, const vector<int>& nums, long long e
     cout << "Threads: " << thread_cnt << endl;
     cout << "Sum: " << sum_multi << endl;
     cout << "Time: " << fixed << setprecision(6) << duration_multi.count() << " sec" << endl;
-    
+
     if (sum_multi == expected_sum)
         cout << "Status: SUCCESS (Sums match)" << endl;
     else
         cout << "Status: ERROR (Sums do not match!)" << endl;
-        
     cout << "------------------------------------------\n";
 }
 
@@ -64,18 +62,14 @@ int main(){
     cout << "Generating array of size " << n << "...\n";
     vector<int> nums(n);
     srand(time(0));
-    
-    for(int i = 0; i < n; i++){
+    for (int i = 0; i < n; i++){
         nums[i] = rand() % 100;
     }
-
     auto start_time = chrono::high_resolution_clock::now();
-    
     long long sum_single = 0;
     for (int val : nums){
         sum_single += val;
     }
-
     auto end_time = chrono::high_resolution_clock::now();
     chrono::duration<double> duration_single = end_time - start_time;
 
@@ -83,11 +77,9 @@ int main(){
     cout << "Time: " << fixed << setprecision(6) << duration_single.count() << " sec\n";
     cout << "------------------------------------------\n";
 
-    vector<int> test_counts = {2, 4, 8};
-    
-    for(int t : test_counts) {
+    vector<int> test_counts = {2, 4, 8};    
+    for (int t : test_counts) {
         run_multithreaded_test(t, nums, sum_single);
     }
-
     return 0;
 }

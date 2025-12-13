@@ -15,6 +15,7 @@ struct Process {
     int turnaround_time; 
     int remaining_time; 
     bool is_completed; 
+    bool is_ready;
 };
 
 #endif

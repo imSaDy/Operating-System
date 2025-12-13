@@ -97,5 +97,56 @@ void testSJF(vector<Process> processes){
     printMetrics(processes, "SJF (Non-Preemptive)");
 }
 
+void check_arrival_processes(vector<Process>& processes, int timer, queue <int>& ready){
+    int n = processes.size(); 
+    for (int i = 0; i < n; i++){
+        if (!processes[i].is_ready && processes[i].remaining_time > 0 && processes[i].arrival_time <= timer){
+            ready.push(i);
+            processes[i].is_ready = true; 
+        }
+    }
+}
+
 void testRR(vector<Process> processes, int quantum){
+    int n = processes.size(); 
+    int timer = 0; 
+    int completed = 0; 
+    for (int i = 0; i < n; i++){
+        processes[i].remaining_time = processes[i].burst_time; 
+        processes[i].is_completed = false; 
+        processes[i].is_ready = false; 
+    }
+    sort(processes.begin(), processes.end(), cmp);
+    queue <int> ready;
+
+    if (processes[0].arrival_time > 0)
+        timer = processes[0].arrival_time; 
+
+    check_arrival_processes(processes, timer, ready);
+
+    while (completed != n){
+        if (ready.empty()){
+            timer++;
+            check_arrival_processes(processes, timer, ready);
+            continue; 
+        }
+        int id = ready.front(); 
+        ready.pop();
+        int cpu_time = min(quantum, processes[id].remaining_time);
+        processes[id].remaining_time -= cpu_time; 
+
+        timer += cpu_time;
+        check_arrival_processes(processes, timer, ready);
+
+        if (processes[id].remaining_time > 0){
+            ready.push(id);
+        }
+        else {
+            processes[id].finish_time = timer;
+            processes[id].turnaround_time = processes[id].finish_time - processes[id].arrival_time;
+            processes[id].waiting_time = processes[id].turnaround_time - processes[id].burst_time;
+            completed++;
+        }
+    }
+    printMetrics(processes, "Round Robin (Q=" + to_string(quantum) + ")");
 }
